@@ -81,7 +81,7 @@ class outlineEditor:
         fp.close()
         self.tree.set_cursor( 0 )
 
-    def selialize( self, fp, itr ):
+    def serialize( self, fp, itr ):
         if None == itr:
             return
         fp.write( "\\NewEntry\n" )
@@ -91,14 +91,14 @@ class outlineEditor:
         store = self.treeStore
         if store.iter_has_child(itr):
             fp.write( "\\NewFolder\n" )
-            self.selialize( fp, store.iter_children(itr) )
+            self.serialize( fp, store.iter_children(itr) )
             fp.write( "\\EndFolder\n" )
-        self.selialize( fp, store.iter_next(itr) )
+        self.serialize( fp, store.iter_next(itr) )
 
     def saveFile( self ):
         fp = open( self.fileName, 'w' )
         itr = self.treeStore.get_iter_root()
-        self.selialize( fp,itr ) 
+        self.serialize( fp,itr ) 
         fp.close
         self.changed = False
 
