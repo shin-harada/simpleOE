@@ -115,6 +115,7 @@ class outlineEditor:
         else:
             treeStore.set_value(itr, 0, wid.get_start_iter().get_text( wid.get_end_iter() ) )
         self.changed = True
+        self.sbarMessage(" ")
 
     # ===== ツリーの操作
     def rowSelected( self, treeView, textView ): # for "cursor-changed"
@@ -131,7 +132,7 @@ class outlineEditor:
         # 移動をするとサブツリー含めて呼ばれてしまうので、結構うざったい
         self.tree.expand_to_path( path )
         self.tree.set_cursor( path )
-        
+
     # ===== ツールバー
     def quitApl(self, widget, data=None):
         if self.changed :
@@ -148,6 +149,7 @@ class outlineEditor:
             self.saveAsDlg( widget )
             return
         self.saveFile()
+        self.sbarMessage("ファイルを保存しました")
 
     def saveAsDlg( self, widget ):
         dlg = gtk.FileSelection("Save As")
@@ -263,6 +265,10 @@ class outlineEditor:
         '''
 
     # ---
+    def sbarMessage( self, msg ):
+        self.sbar.pop( self.conID )
+        self.sbar.push( self.conID, msg )
+
     def addImageMenuItem( self, menu, agr, stock, key, func ):
         i   = gtk.ImageMenuItem( stock, agr )
         key, mod = gtk.accelerator_parse(key)
@@ -434,6 +440,7 @@ class outlineEditor:
         self.vBox.add(self.sbar)
         self.vBox.set_child_packing(self.sbar, False,True,0,0)
         self.sbar.show()
+        self.conID = self.sbar.get_context_id("Message")
 
         # and the window
         self.window.show_all()
