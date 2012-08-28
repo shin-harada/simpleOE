@@ -1,5 +1,8 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
+Config_Font  = 'Monospace, Normal 11'
+Config_Width, Config_Height = (800, 800)
+
 
 import os.path
 import pygtk
@@ -128,15 +131,7 @@ class outlineEditor:
         # 移動をするとサブツリー含めて呼ばれてしまうので、結構うざったい
         self.tree.expand_to_path( path )
         self.tree.set_cursor( path )
-
-    def rowMoved2( self, treeModel, path, itr ):
-        # ツリーが並び替えられた場合フォーカスを与える
-        # 移動をするとサブツリー含めて呼ばれてしまうので、結構うざったい
-        print path
-        self.tree.expand_to_path( path )
-        self.tree.set_cursor( path )
-        print '=----'
-
+        
     # ===== ツールバー
     def quitApl(self, widget, data=None):
         if self.changed :
@@ -277,10 +272,6 @@ class outlineEditor:
 
     # ===== 初期化
     def __init__(self):
-        # settings
-        self.config_Font  = 'Monospace, Normal 11'
-        self.config_Width, self.config_Height = (800, 800)
-
         # vars
         self.fileName = None
         self.changed  = False
@@ -289,10 +280,10 @@ class outlineEditor:
         # main window
         self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
         self.window.connect("delete_event", self.quitApl)
-        self.window.set_usize(self.config_Width, self.config_Height)
+        self.window.set_usize(Config_Width, Config_Height)
 
         self.text = gtk.TextView( )
-        self.text.modify_font(pango.FontDescription(self.config_Font))
+        self.text.modify_font(pango.FontDescription(Config_Font))
 
         # vBox ( menu | tool | main | status )
         self.vBox = gtk.VBox(False,0)
