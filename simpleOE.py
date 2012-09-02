@@ -13,7 +13,11 @@ class ExtendedTextBuffer(gtk.TextBuffer):
     def __init__(self):
         gtk.TextBuffer.__init__(self)
         self.searchTag = self.create_tag( foreground='#ff0000', background='#ffff00' )
+        self.resetUndo()
+        self.insHandler = self.connect('insert-text',  self.onInsert )
+        self.delHandler = self.connect('delete-range', self.onDelete )
 
+    # SEARCH
     def search( self, key, dir, head = False ):
         if key == None or key == "": return
         first, last = self.get_bounds()
@@ -37,6 +41,60 @@ class ExtendedTextBuffer(gtk.TextBuffer):
             self.place_cursor(start)
         return True
 
+    # UNDO
+    def startRec( self ):
+        self.handler_unblock(self.insHandler)
+        self.handler_unblock(self.delHandler)
+
+    def stopRec( self ):
+        self.handler_block(self.insHandler)
+        self.handler_block(self.delHandler)
+
+    def resetUndo( self ):
+        self.undoStack = []
+        self.redoStack = []
+
+    def pushUndo( self, op, start, end, text ):
+        self.redoStack = []
+        if len(self.undoStack) > 0:
+            cmd = self.undoStack[-1]
+            if op == 'i' and cmd[0] == op and cmd[2] == start:
+                self.undoStack[-1] = ( op, cmd[1], end, cmd[3]+text )
+            elif op == 'd' and cmd[0] == op and end == cmd[1]:
+                self.undoStack[-1] = ( op, start, cmd[2], text+cmd[3] )
+            else:
+                self.undoStack.append( ( op ,start, end, text ) )
+        else:
+            self.undoStack.append( ( op ,start, end, text ) )
+
+    def onInsert( self, buf, start, txt, len ):
+        self.pushUndo( "i", start.get_offset(), start.get_offset()+len, txt )
+
+    def onDelete( self, buf, start, end ):
+        self.pushUndo( "d", start.get_offset(), end.get_offset(), self.get_text( start, end ) )
+
+    def undo( self ):
+        if len(self.undoStack) == 0: return
+        cmd = self.undoStack.pop()
+        self.redoStack.append( cmd )
+        self.stopRec()
+        if cmd[0] == 'i':
+            self.delete( self.get_iter_at_offset(cmd[1]), self.get_iter_at_offset(cmd[2]) )
+        else:
+            self.insert( self.get_iter_at_offset(cmd[1]), cmd[3] )
+        self.startRec()
+
+    def redo( self ):
+        if len(self.redoStack) == 0: return
+        cmd = self.redoStack.pop()
+        self.undoStack.append( cmd )
+        self.stopRec()
+        if cmd[0] == 'i':
+            self.insert( self.get_iter_at_offset(cmd[1]), cmd[3] )
+        else:
+            self.delete( self.get_iter_at_offset(cmd[1]), self.get_iter_at_offset(cmd[2]) )
+        self.startRec()
+
 class outlineEditor:
     # ===== ファイルの操作
     def setText2Buf( self, mode, itr, head, txt ):
@@ -44,7 +102,9 @@ class outlineEditor:
         store = self.treeStore
 
         buf = ExtendedTextBuffer()
+        buf.stopRec()
         buf.set_text(txt)
+        buf.startRec()
         last = store.append(itr, [head, buf ] )
         buf.connect("changed", self.textUpdated )
         return last
@@ -107,8 +167,8 @@ class outlineEditor:
 
     # ===== テキストの操作
     def textUpdated(self, wid ): # ツリータイトルのかきかえ
-        # ノードを移動すると、イテレータが並び替えで無効になるので、記録したものを利用
-        itr = self.cursor
+        selection = self.tree.get_selection()
+        (store, itr) = selection.get_selected()
         treeStore = self.treeStore
         if wid.get_line_count() > 1:
             treeStore.set_value(itr, 0, wid.get_start_iter().get_text( wid.get_iter_at_line(1) )[:-1] )
@@ -125,7 +185,6 @@ class outlineEditor:
         textView.set_buffer( store.get(itr,1)[0] )
         # 最初だけ失敗する。謎のエラーの模様.
         # http://stackoverflow.com/questions/7032233/mysterious-gobject-warning-assertion-g-is-object-object-failed
-        self.cursor = itr
 
     def rowMoved( self, treeModel, path, itr ):
         # ツリーが並び替えられた場合フォーカスを与える
@@ -263,6 +322,17 @@ class outlineEditor:
             i = store.iter_next(i2) # ここで 頭から探さないと...
             # ぎゃ。iter_prev は無いとか…。
         '''
+    def undo( self, wid ):
+        selection = self.tree.get_selection()
+        (store, itr) = selection.get_selected()
+        buf = store.get(itr,1)[0]
+        buf.undo()
+
+    def redo( self, wid ):
+        selection = self.tree.get_selection()
+        (store, itr) = selection.get_selected()
+        buf = store.get(itr,1)[0]
+        buf.redo()
 
     # ---
     def sbarMessage( self, msg ):
@@ -281,12 +351,12 @@ class outlineEditor:
         # vars
         self.fileName = None
         self.changed  = False
-        self.cursor   =  None
 
         # main window
         self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
         self.window.connect("delete_event", self.quitApl)
-        self.window.set_usize(Config_Width, Config_Height)
+        #self.window.set_usize(Config_Width, Config_Height)
+        self.window.set_size_request(Config_Width, Config_Height)
 
         self.text = gtk.TextView( )
         self.text.modify_font(pango.FontDescription(Config_Font))
@@ -320,7 +390,10 @@ class outlineEditor:
         fmi.set_submenu(menu)
         mb.append(fmi)
 
-        self.addImageMenuItem( menu, agr, gtk.STOCK_FIND,    "<Control>F",       lambda s: self.findEntry.grab_focus() )
+        self.addImageMenuItem( menu, agr, "検索",    "<Control>R",   lambda s: self.findEntry.grab_focus() )
+        menu.append( gtk.SeparatorMenuItem() )
+        self.addImageMenuItem( menu, agr, "Undo",    "<Control>Z",  self.undo )
+        self.addImageMenuItem( menu, agr, "Redo",    "<Shift><Control>Z",   self.redo )
 
         # tool bar
         self.toolbar = gtk.Toolbar()
@@ -357,9 +430,6 @@ class outlineEditor:
         self.tree.append_column(self.tvcolumn)
         self.cell = gtk.CellRendererText()
         self.tvcolumn.pack_start(self.cell, True)
-
-        # set the cell "text" attribute to column 0 - retrieve text
-        # from that column in treeStore
         self.tvcolumn.add_attribute(self.cell, 'text', 0)
    
         self.tree.set_search_column(0)
