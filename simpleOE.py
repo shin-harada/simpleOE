@@ -4,7 +4,7 @@ Config_Font  = 'Monospace, Normal 11'
 Config_Width, Config_Height = (800, 800)
 
 
-import os.path
+import sys, os.path
 import pygtk
 pygtk.require('2.0')
 import gtk,pango
@@ -42,6 +42,12 @@ class ExtendedTextBuffer(gtk.TextBuffer):
         return True
 
     # UNDO
+    def onInsert( self, buf, start, txt, len ):
+        self.pushUndo( "i", start.get_offset(), start.get_offset()+len, txt )
+
+    def onDelete( self, buf, start, end ):
+        self.pushUndo( "d", start.get_offset(), end.get_offset(), self.get_text( start, end ) )
+
     def startRec( self ):
         self.handler_unblock(self.insHandler)
         self.handler_unblock(self.delHandler)
@@ -66,12 +72,6 @@ class ExtendedTextBuffer(gtk.TextBuffer):
                 self.undoStack.append( ( op ,start, end, text ) )
         else:
             self.undoStack.append( ( op ,start, end, text ) )
-
-    def onInsert( self, buf, start, txt, len ):
-        self.pushUndo( "i", start.get_offset(), start.get_offset()+len, txt )
-
-    def onDelete( self, buf, start, end ):
-        self.pushUndo( "d", start.get_offset(), end.get_offset(), self.get_text( start, end ) )
 
     def undo( self ):
         if len(self.undoStack) == 0: return
@@ -256,8 +256,8 @@ class outlineEditor:
                 dlg.destroy()
                 return
             self.fileName = fn
-            self.window.set_title(self.fileName)
             self.loadFile( self.fileName )
+            self.window.set_title(self.fileName)
         else:
             dlg.destroy()
 
@@ -488,7 +488,6 @@ class outlineEditor:
         self.toolbar.append_item(None, "Collapse",
                                  None, icon, None,None )
                                  '''
-
         icon = gtk.image_new_from_stock(gtk.STOCK_CLEAR, gtk.ICON_SIZE_BUTTON)
         self.findEntry = gtk.Entry()
         self.findEntry.connect("icon-press", lambda s, t, u : self.findEntry.set_text("") )
@@ -512,7 +511,19 @@ class outlineEditor:
         self.sbar.show()
         self.conID = self.sbar.get_context_id("Message")
 
-        # and the window
+        # ==== argv 
+        argvs = sys.argv
+        if len(argvs) > 1:
+            if os.path.isfile( argvs[1] ):
+                self.loadFile( argvs[1] )
+                self.window.set_title(self.fileName)
+            elif not os.path.exists( argvs[1] ):
+                self.fileName = argvs[1]
+                self.window.set_title(self.fileName)
+            else:
+                self.sbarMessage("ファイル名"+argvs[1]+"は不適切です(ディレクトリなど)")
+
+        # ===== window
         self.window.show_all()
 
     def main(self):
