@@ -19,31 +19,34 @@ class ExtendedTextBuffer(gtk.TextBuffer):
 
     # SEARCH
     def search( self, key, dir, head = False ):
-        if key == None or key == "": return
+        if key == None or key == "": return None
         first, last = self.get_bounds()
         self.remove_tag( self.searchTag, first, last )
 
-        if head: 
-            cur = self.get_start_iter()
+        if head:
+            if dir > 0:
+                cur = self.get_start_iter()
+            else:
+                cur = self.get_end_iter()
         else:
-            cur = self.get_iter_at_mark( self.get_insert() ) # カーソル位置
+            cur = self.get_iter_at_mark( self.get_insert() )
 
         if dir > 0 :
             r = cur.forward_search( key, gtk.TEXT_SEARCH_TEXT_ONLY )
         else:
             r = cur.backward_search( key, gtk.TEXT_SEARCH_TEXT_ONLY )
-        if r == None : return False
+        if r == None : return None
         start, end = r
         self.apply_tag( self.searchTag, start, end )
         if dir > 0:
             self.place_cursor(end)
         else:
             self.place_cursor(start)
-        return True
+        return start
 
     # UNDO
-    def onInsert( self, buf, start, txt, len ):
-        self.pushUndo( "i", start.get_offset(), start.get_offset()+len, txt )
+    def onInsert( self, buf, start, txt, length ):
+        self.pushUndo( "i", start.get_offset(), start.get_offset()+len(unicode(txt,'utf-8')), txt )
 
     def onDelete( self, buf, start, end ):
         self.pushUndo( "d", start.get_offset(), end.get_offset(), self.get_text( start, end ) )
@@ -66,8 +69,10 @@ class ExtendedTextBuffer(gtk.TextBuffer):
             cmd = self.undoStack[-1]
             if op == 'i' and cmd[0] == op and cmd[2] == start:
                 self.undoStack[-1] = ( op, cmd[1], end, cmd[3]+text )
-            elif op == 'd' and cmd[0] == op and end == cmd[1]:
+            elif op == 'd' and cmd[0] == op and end == cmd[1]:   # Backspace
                 self.undoStack[-1] = ( op, start, cmd[2], text+cmd[3] )
+            elif op == 'd' and cmd[0] == op and cmd[1] == start: # Delete
+                self.undoStack[-1] = ( op, cmd[1], end, cmd[3]+text )
             else:
                 self.undoStack.append( ( op ,start, end, text ) )
         else:
@@ -80,6 +85,7 @@ class ExtendedTextBuffer(gtk.TextBuffer):
         self.stopRec()
         if cmd[0] == 'i':
             self.delete( self.get_iter_at_offset(cmd[1]), self.get_iter_at_offset(cmd[2]) )
+            # 多バイト文字だと、消す文字数がずれる…
         else:
             self.insert( self.get_iter_at_offset(cmd[1]), cmd[3] )
         self.startRec()
@@ -182,7 +188,12 @@ class outlineEditor:
         # なぜか、ここに二回来る…
         selection = treeView.get_selection()
         (store, itr) = selection.get_selected()
-        textView.set_buffer( store.get(itr,1)[0] )
+    
+        buf = store.get(itr,1)[0]
+        if buf == None: return
+        textView.set_buffer( buf )
+        self.text.scroll_to_mark( buf.get_insert(), 0.3 )
+
         # 最初だけ失敗する。謎のエラーの模様.
         # http://stackoverflow.com/questions/7032233/mysterious-gobject-warning-assertion-g-is-object-object-failed
 
@@ -292,36 +303,37 @@ class outlineEditor:
         self.tree.set_cursor(cur)
         self.changed = True
 
-    def search( self, widget, entry, dir ): # Entry
+    # サーチ
+    def getTreeIters( self, store, itr, dir ):
+        self.iList = []
+        store.foreach( lambda m,p,i: self.iList.append(i) )
+        if dir == -1: self.iList.reverse() # 逆サーチはまだうまくいっていない…。
+        while store.get_string_from_iter(itr) != store.get_string_from_iter(self.iList[0]): 
+            i = self.iList.pop(0)
+            self.iList.append(i)
+        return self.iList
+
+    def search( self, widget, entry, dir ):
         selection = self.tree.get_selection()
         (store, itr) = selection.get_selected()
 
         buf = store.get(itr,1)[0]
-        buf.search( entry.get_text(), dir )
-        '''
-        # 次のノードも検索するようにするには…
-        i = itr
-        while i != None :
-            buf = store.get(i,1)[0]
-            if buf.search( entry.get_text(), dir ):
-                self.text.set_buffer( store.get(i,1)[0] )
-                self.tree.set_cursor( store.get_path(i) )
-                return
+        i = buf.search( entry.get_text(), dir )
+        if None == i:
+            list = self.getTreeIters( store, itr, dir )
+            itr = list.pop(0)
+            while True:
+                if len(list) == 0: return
+                itr = list.pop(0)
+                buf = store.get(itr,1)[0]
+                i = buf.search( entry.get_text(), dir, True )
+                if i != None:
+                    path = self.treeStore.get_string_from_iter( itr )
+                    self.tree.set_cursor( path )
+                    break
+        self.text.scroll_to_iter( i, 0.3 )
 
-            i2 = store.iter_children(i)
-            if i2 != None:
-                i = i2
-                continue
-            i2 = store.iter_next(i)
-            if i2 != None:
-                i = i2
-                continue
-            i2 = store.iter_parent(i)
-            if i2 == None:
-                return
-            i = store.iter_next(i2) # ここで 頭から探さないと...
-            # ぎゃ。iter_prev は無いとか…。
-        '''
+    # Undo
     def undo( self, wid ):
         selection = self.tree.get_selection()
         (store, itr) = selection.get_selected()
@@ -357,9 +369,6 @@ class outlineEditor:
         self.window.connect("delete_event", self.quitApl)
         #self.window.set_usize(Config_Width, Config_Height)
         self.window.set_size_request(Config_Width, Config_Height)
-
-        self.text = gtk.TextView( )
-        self.text.modify_font(pango.FontDescription(Config_Font))
 
         # vBox ( menu | tool | main | status )
         self.vBox = gtk.VBox(False,0)
@@ -416,13 +425,16 @@ class outlineEditor:
         buf.connect("changed", self.textUpdated )
 
         # tree view
+        self.text = gtk.TextView( )
+        self.text.modify_font(pango.FontDescription(Config_Font))
+        self.tree = gtk.TreeView( self.treeStore )
+        self.tree.connect("cursor-changed", self.rowSelected, self.text )
+
         sw = gtk.ScrolledWindow()
         sw.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)        
         sw.show()
-        self.hPane.add(sw)
-        self.tree = gtk.TreeView( self.treeStore )
-        self.tree.connect("cursor-changed", self.rowSelected, self.text )
         sw.add(self.tree)
+        self.hPane.add(sw)
 
         # create the TreeViewColumn to display the data
         self.tvcolumn = gtk.TreeViewColumn('')
@@ -436,6 +448,7 @@ class outlineEditor:
         self.tree.set_reorderable(True)
         self.tree.set_cursor(0)
         self.tree.show()
+
         self.treeStore.connect("row-changed", self.rowMoved )
         #self.treeStore.connect("row-inserted", self.rowMoved2 )
         #self.tree.connect("unselect-all", self.rowMoved )
@@ -516,6 +529,7 @@ class outlineEditor:
         if len(argvs) > 1:
             if os.path.isfile( argvs[1] ):
                 self.loadFile( argvs[1] )
+                self.fileName = argvs[1]
                 self.window.set_title(self.fileName)
             elif not os.path.exists( argvs[1] ):
                 self.fileName = argvs[1]
