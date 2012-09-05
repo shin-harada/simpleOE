@@ -109,7 +109,7 @@ class outlineEditor:
 
         buf = ExtendedTextBuffer()
         buf.stopRec()
-        buf.set_text(txt)
+        buf.set_text(txt[:-1])
         buf.startRec()
         last = store.append(itr, [head, buf ] )
         buf.connect("changed", self.textUpdated )
@@ -188,7 +188,7 @@ class outlineEditor:
         # なぜか、ここに二回来る…
         selection = treeView.get_selection()
         (store, itr) = selection.get_selected()
-    
+
         buf = store.get(itr,1)[0]
         if buf == None: return
         textView.set_buffer( buf )
@@ -471,10 +471,11 @@ class outlineEditor:
         icon = gtk.image_new_from_stock(gtk.STOCK_SAVE, gtk.ICON_SIZE_BUTTON)
         self.toolbar.append_item(None, "Save",
                                  None, icon, self.saveDocument )
-
+        '''
         icon = gtk.image_new_from_stock(gtk.STOCK_SAVE_AS, gtk.ICON_SIZE_BUTTON)
         self.toolbar.append_item(None, "SaveAs",
                                  None, icon, self.saveAsDlg )
+                                 '''
 
         self.toolbar.append_space()
 
