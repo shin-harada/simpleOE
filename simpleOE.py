@@ -3,7 +3,6 @@
 Config_Font  = 'Monospace, Normal 11'
 Config_Width, Config_Height = (800, 800)
 
-
 import sys, os.path
 import datetime
 import pygtk
@@ -86,7 +85,6 @@ class ExtendedTextBuffer(gtk.TextBuffer):
         self.stopRec()
         if cmd[0] == 'i':
             self.delete( self.get_iter_at_offset(cmd[1]), self.get_iter_at_offset(cmd[2]) )
-            # 多バイト文字だと、消す文字数がずれる…
         else:
             self.insert( self.get_iter_at_offset(cmd[1]), cmd[3] )
         self.startRec()
@@ -102,7 +100,66 @@ class ExtendedTextBuffer(gtk.TextBuffer):
             self.delete( self.get_iter_at_offset(cmd[1]), self.get_iter_at_offset(cmd[2]) )
         self.startRec()
 
-class outlineEditor:
+class ReplaceWindow:
+    def keyPress( self, wid, evnt ):
+        if evnt.keyval == gtk.keysyms.Escape:
+            self.win.destroy()
+
+    def __init__(self, search, replace ):
+        self.focus = None
+
+        self.win = gtk.Window(gtk.WINDOW_TOPLEVEL)
+        #self.win.set_size_request(200,100)
+        self.win.connect("delete_event", lambda w,e: self.win.destroy() )
+        self.win.set_modal(gtk.DIALOG_MODAL)
+        self.win.set_border_width(10)
+        self.win.connect("key-press-event", self.keyPress )
+
+        vbox = gtk.VBox(False,0)
+        self.win.add(vbox)
+        vbox.show()
+
+        fromFld = gtk.Entry()
+        fromFld.set_max_length(50)
+        vbox.pack_start(fromFld,True, True, 0 )
+        fromFld.show()
+
+        toFld = gtk.Entry()
+        toFld.set_max_length(50)
+        vbox.pack_start(toFld,True, True, 0 )
+        toFld.show()
+
+        hbox = gtk.HBox(False,0)
+        vbox.pack_start(hbox, True, True, 0 )
+        hbox.show()
+
+        def _search( w ):
+            self.focus = search(fromFld.get_text(),1)
+
+        skipBtn = gtk.Button("検索")
+        skipBtn.connect("clicked", _search  )
+        hbox.pack_start(skipBtn, True, True, 0 )
+        skipBtn.show()
+
+        def _replace( w ):
+            if self.focus != None:
+                replace( self.focus, toFld.get_text() )
+            self.focus = search(fromFld.get_text(),1)
+
+        replBtn = gtk.Button("置き換え")
+        replBtn.connect("clicked", _replace  )
+        hbox.pack_start(replBtn, True, True, 0 )
+        replBtn.show()
+
+        closeBtn = gtk.Button("閉じる")
+        closeBtn.connect("clicked", lambda w: self.win.destroy() )
+        hbox.pack_start(closeBtn, True, True, 0 )
+        closeBtn.show()
+
+        self.win.show()
+        return 
+
+class OutlineEditor:
     # ===== ファイルの操作
     def setText2Buf( self, mode, itr, head, txt ):
         if not mode: return
@@ -319,40 +376,42 @@ class outlineEditor:
             self.iList.append(i)
         return self.iList
 
-    def search( self, widget, entry, dir ):
+    def _search( self, str, dir ):
         selection = self.tree.get_selection()
         (store, itr) = selection.get_selected()
-
         buf = store.get(itr,1)[0]
-        i = buf.search( entry.get_text(), dir )
+
+        i = buf.search( str, dir )
         if None == i:
             list = self.getTreeIters( store, itr, dir )
             itr = list.pop(0)
             while True:
-                if len(list) == 0: return
+                if len(list) == 0:
+                    self.sbarMessage("「%s」は、みつかりませんでした。" % str )
+                    return None
                 itr = list.pop(0)
                 buf = store.get(itr,1)[0]
-                i = buf.search( entry.get_text(), dir, True )
+                i = buf.search( str, dir, True )
                 if i != None:
                     path = self.treeStore.get_string_from_iter( itr )
                     self.tree.set_cursor( path )
                     break
         start, end = i
         self.text.scroll_to_iter( start, 0.3 )
+        return i
+
+    def search( self, widget, entry, dir ):
+        return self._search( entry.get_text(), dir )
 
     # 置き換え
-    '''
-    def replace(self)
-        selection = self.tree.get_selection()
-        (store, itr) = selection.get_selected()
+    def _replace( self, itrs, str ):
+        start, end = itrs
+        self.text.get_buffer().delete( start, end )
+        self.text.get_buffer().insert( start, str )
+        return
 
-        buf = store.get(itr,1)[0]
-        i = buf.search( entry.get_text(), dir )
-        if i == None:
-            # 無かった。
-        start, end = i
-        
-    '''
+    def replace(self,wid):
+        p = ReplaceWindow( self._search, self._replace )
 
     # Undo
     def undo( self, wid ):
@@ -421,6 +480,7 @@ class outlineEditor:
         mb.append(fmi)
 
         self.addImageMenuItem( menu, agr, "検索",    "<Control>R",   lambda s: self.findEntry.grab_focus() )
+        self.addImageMenuItem( menu, agr, "置換",    "<Shift><Control>R",     self.replace )
         menu.append( gtk.SeparatorMenuItem() )
         self.addImageMenuItem( menu, agr, "Undo",    "<Control>Z",  self.undo )
         self.addImageMenuItem( menu, agr, "Redo",    "<Shift><Control>Z",   self.redo )
@@ -566,6 +626,6 @@ class outlineEditor:
         gtk.main()
 
 if __name__ == "__main__":
-    apl = outlineEditor()
+    apl = OutlineEditor()
     apl.main()
 
