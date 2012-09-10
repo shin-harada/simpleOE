@@ -5,6 +5,7 @@ Config_Width, Config_Height = (800, 800)
 
 
 import sys, os.path
+import datetime
 import pygtk
 pygtk.require('2.0')
 import gtk,pango
@@ -42,7 +43,7 @@ class ExtendedTextBuffer(gtk.TextBuffer):
             self.place_cursor(end)
         else:
             self.place_cursor(start)
-        return start
+        return r
 
     # UNDO
     def onInsert( self, buf, start, txt, length ):
@@ -272,13 +273,16 @@ class outlineEditor:
         else:
             dlg.destroy()
 
+    # ツリーの操作
     def addChild( self, widget, treeView ):
         selection = treeView.get_selection()
         (store, itr) = selection.get_selected()
 
+        d = datetime.datetime.today()
+        txt = '%s/%s/%s' % (d.year, d.month, d.day)
         buf = ExtendedTextBuffer();
-        buf.set_text("New Item")
-        last = store.append(itr, ["New Item", buf ] )
+        buf.set_text(txt)
+        store.append(itr, [txt, buf ] )
         buf.connect("changed", self.textUpdated )
         self.changed = True
 
@@ -287,9 +291,11 @@ class outlineEditor:
         (store, itr) = selection.get_selected()
         par = store.iter_parent(itr)
 
+        d = datetime.datetime.today()
+        txt = '%s/%s/%s' % (d.year, d.month, d.day)
         buf = ExtendedTextBuffer();
-        buf.set_text("New Item")
-        last = store.append(par, ["New Item", buf ] )
+        buf.set_text(txt)
+        store.append(par, [txt, buf ] )
         buf.connect("changed", self.textUpdated )
         self.changed = True
 
@@ -331,7 +337,22 @@ class outlineEditor:
                     path = self.treeStore.get_string_from_iter( itr )
                     self.tree.set_cursor( path )
                     break
-        self.text.scroll_to_iter( i, 0.3 )
+        start, end = i
+        self.text.scroll_to_iter( start, 0.3 )
+
+    # 置き換え
+    '''
+    def replace(self)
+        selection = self.tree.get_selection()
+        (store, itr) = selection.get_selected()
+
+        buf = store.get(itr,1)[0]
+        i = buf.search( entry.get_text(), dir )
+        if i == None:
+            # 無かった。
+        start, end = i
+        
+    '''
 
     # Undo
     def undo( self, wid ):
