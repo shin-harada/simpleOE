@@ -168,9 +168,10 @@ class OutlineEditor:
         buf = ExtendedTextBuffer()
         buf.stopRec()
         buf.set_text(txt[:-1])
-        buf.startRec()
-        last = store.append(itr, [head, buf ] )
         buf.connect("changed", self.textUpdated )
+        icon = self.window.render_icon(gtk.STOCK_DND, gtk.ICON_SIZE_BUTTON)
+        last = store.append(itr, [head, buf, icon ] )
+        buf.startRec()
         return last
 
     def deSerial( self, fp, itr):
