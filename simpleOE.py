@@ -22,7 +22,9 @@ class ExtendedTextBuffer(gtk.TextBuffer):
         self.create_tag( "hilight", foreground='#000000', background='#ffccff' )
         self.create_tag( "comment", foreground='#008800' )
         self.create_tag( "comment2",foreground='#aaaaaa' )
-        self.hilightFormats = ((r"\[.*\]","hilight"),(r"^#.*","comment"),(r"^;.*","comment2"))
+        self.create_tag( "extract", foreground='#1111cc' )
+        self.hilightFormats = ((r"\[[^\]]*\]","hilight"),(r"^#.*","comment"),(r"^;.*","comment2"),
+                               (r"^\>.*","extract"))
 
     # Hilight
     def hilight( self ):
