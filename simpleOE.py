@@ -12,34 +12,41 @@ import gtk,pango
 class ExtendedTextBuffer(gtk.TextBuffer):
     def __init__(self):
         gtk.TextBuffer.__init__(self)
-        self.headerTag  = self.create_tag( pixels_below_lines = 5,
-                                           weight = pango.WEIGHT_ULTRABOLD,
-                                           underline = pango.UNDERLINE_SINGLE )
-        self.hilightTag = self.create_tag( foreground='#000000', background='#ffaaff' )
-        self.searchTag  = self.create_tag( foreground='#ff0000', background='#ffff00' )
-        self.resetUndo()
+        self.create_tag("header", pixels_below_lines = 5,
+                        weight = pango.WEIGHT_ULTRABOLD, underline = pango.UNDERLINE_SINGLE )
+        self.create_tag( "search",  foreground='#ff0000', background='#ffff00' )
         self.insHandler = self.connect('insert-text',  self.onInsert )
         self.delHandler = self.connect('delete-range', self.onDelete )
+        self.resetUndo()
+        # Hiliting-Rules
+        self.create_tag( "hilight", foreground='#000000', background='#ffccff' )
+        self.create_tag( "comment", foreground='#008800' )
+        self.create_tag( "comment2",foreground='#aaaaaa' )
+        self.hilightFormats = ((r"\[.*\]","hilight"),(r"^#.*","comment"),(r"^;.*","comment2"))
 
     # Hilight
     def hilight( self ):
-        first, last = self.get_bounds()
-        self.remove_tag(self.hilightTag, first, last )
-        self.remove_tag(self.headerTag, first, last )
         buf = self.get_start_iter().get_text( self.get_end_iter() )
-        res = re.compile(r"^.*").match( buf )
-        self.apply_tag( self.headerTag,
-                        self.get_iter_at_offset(res.start()), self.get_iter_at_offset(res.end() ))
 
-        for res in re.compile(r"\[.*\]").finditer( buf ):
-            self.apply_tag( self.hilightTag,
-                            self.get_iter_at_offset(res.start()), self.get_iter_at_offset(res.end() ))
+        first, last = self.get_bounds()
+        self.remove_tag_by_name("header", first, last )
+        res = re.compile(r"^.*").match( buf )
+        self.apply_tag_by_name( "header",
+                                self.get_iter_at_offset(res.start()),
+                                self.get_iter_at_offset(res.end() ))
+
+        for f in self.hilightFormats:
+            self.remove_tag_by_name(f[1], first, last )
+            for res in re.compile( f[0], re.M ).finditer(buf):
+                self.apply_tag_by_name( f[1],
+                                        self.get_iter_at_offset(res.start()),
+                                        self.get_iter_at_offset(res.end() ))
 
     # SEARCH
     def search( self, key, dir, head = False ):
         if key == None or key == "": return None
         first, last = self.get_bounds()
-        self.remove_tag( self.searchTag, first, last )
+        self.remove_tag_by_name( "search", first, last )
 
         if head:
             if dir > 0:
@@ -55,7 +62,7 @@ class ExtendedTextBuffer(gtk.TextBuffer):
             r = cur.backward_search( key, gtk.TEXT_SEARCH_TEXT_ONLY )
         if r == None : return None
         start, end = r
-        self.apply_tag( self.searchTag, start, end )
+        self.apply_tag_by_name( "search", start, end )
         if dir > 0:
             self.place_cursor(end)
         else:
@@ -150,20 +157,18 @@ class ReplaceWindow:
         vbox.pack_start(hbox, True, True, 0 )
         hbox.show()
 
+        skipBtn = gtk.Button("検索")
         def _search( w ):
             self.focus = search(fromFld.get_text(),1)
-
-        skipBtn = gtk.Button("検索")
         skipBtn.connect("clicked", _search  )
         hbox.pack_start(skipBtn, True, True, 0 )
         skipBtn.show()
 
+        replBtn = gtk.Button("置き換え")
         def _replace( w ):
             if self.focus != None:
                 replace( self.focus, toFld.get_text() )
             self.focus = search(fromFld.get_text(),1)
-
-        replBtn = gtk.Button("置き換え")
         replBtn.connect("clicked", _replace  )
         hbox.pack_start(replBtn, True, True, 0 )
         replBtn.show()
@@ -190,6 +195,7 @@ class OutlineEditor:
         buf.place_cursor(buf.get_start_iter())
         buf.startRec()
         icon = self.window.render_icon(gtk.STOCK_DND, gtk.ICON_SIZE_BUTTON)
+        head = head + " (%d)"% buf.get_line_count()
         last = store.append(itr, [head, buf, icon ] )
         return last
 
@@ -249,15 +255,32 @@ class OutlineEditor:
         fp.close
         self.changed = False
 
+    '''
+    # ----- Printer
+    def _printText( self, op, context, pageNo ):
+        plo = context.create_pango_layout("") 
+        plo.set_text( "ここでテキストを書き込む" )
+        # ここのpango layout でフォーマットすれば良い？？
+        # どうも、ページ単位でフォーマットしないといけない模様…？
+
+        cCtxt = context.get_cairo_context()
+        cCtxt.show_layout( plo )
+
+    def printOperation( self ):
+        pOp = gtk.PrintOperation()
+        pOp.set_n_pages(1)
+        pOp.connect("draw_page", self._printText )
+        pOp.run( gtk.PRINT_OPERATION_ACTION_PRINT_DIALOG, None )
+        '''
+
     # ===== テキストの操作
     def textUpdated(self, txtBuf ): # ツリータイトルのかきかえ
-        selection = self.tree.get_selection()
-        (store, itr) = selection.get_selected()
-        treeStore = self.treeStore
+        (store, itr) = self.tree.get_selection().get_selected()
         if txtBuf.get_line_count() > 1:
-            treeStore.set_value(itr, 0, txtBuf.get_start_iter().get_text( txtBuf.get_iter_at_line(1) )[:-1] )
+            buf = txtBuf.get_start_iter().get_text( txtBuf.get_iter_at_line(1) )[:-1] 
         else:
-            treeStore.set_value(itr, 0, txtBuf.get_start_iter().get_text( txtBuf.get_end_iter() ) )
+            buf = txtBuf.get_start_iter().get_text( txtBuf.get_end_iter() )
+        self.treeStore.set_value(itr, 0, buf + " (%d)"%txtBuf.get_line_count() )
         self.changed = True
         self.sbarMessage(" c:%d  l:%d " % (txtBuf.get_char_count(), txtBuf.get_line_count() ) )
         txtBuf.hilight()
@@ -265,8 +288,7 @@ class OutlineEditor:
     # ===== ツリーの操作
     def rowSelected( self, treeView, textView ): # for "cursor-changed"
         # なぜか、ここに二回来る…
-        selection = treeView.get_selection()
-        (store, itr) = selection.get_selected()
+        (store, itr) = treeView.get_selection().get_selected()
 
         buf = store.get(itr,1)[0]
         if buf == None: return
@@ -360,7 +382,7 @@ class OutlineEditor:
         buf.connect("changed", self.textUpdated )
         buf.hilight()
         icon = self.window.render_icon(gtk.STOCK_DND, gtk.ICON_SIZE_BUTTON)
-        return [txt, buf, icon ]
+        return [txt+" (1)", buf, icon ]
 
     def addChild( self, widget, treeView ):
         selection = treeView.get_selection()
@@ -372,7 +394,8 @@ class OutlineEditor:
         selection = treeView.get_selection()
         (store, itr) = selection.get_selected()
         par = store.iter_parent(itr)
-        store.append(par, self._newItem() )
+        #store.append(par, self._newItem() )
+        store.insert_after( None, itr, self._newItem() )
         self.changed = True
 
 
@@ -536,7 +559,7 @@ class OutlineEditor:
         self.tree.connect("cursor-changed", self.rowSelected, self.text )
 
         sw = gtk.ScrolledWindow()
-        sw.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)        
+        sw.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
         sw.show()
         sw.add(self.tree)
         self.hPane.add(sw)
@@ -564,7 +587,7 @@ class OutlineEditor:
 
         # ===== text area
         sw = gtk.ScrolledWindow()
-        sw.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)        
+        sw.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_ALWAYS)        
         sw.show()
         self.hPane.add(sw)
         self.text.set_wrap_mode(gtk.WRAP_CHAR)
@@ -574,20 +597,17 @@ class OutlineEditor:
 
         # ----- tool bar
         icon = gtk.image_new_from_stock(gtk.STOCK_OPEN, gtk.ICON_SIZE_BUTTON)
-        self.toolbar.append_item(None, "Open",
-                                 None, icon, self.openDocumentDlg )
+        self.toolbar.append_item(None, "Open File", None, icon, self.openDocumentDlg )
 
         icon = gtk.image_new_from_stock(gtk.STOCK_SAVE, gtk.ICON_SIZE_BUTTON)
-        self.toolbar.append_item(None, "Save",
-                                 None, icon, self.saveDocument )
+        self.toolbar.append_item(None, "Save File", None, icon, self.saveDocument )
         self.toolbar.append_space()
 
         icon = gtk.image_new_from_stock(gtk.STOCK_NEW,  gtk.ICON_SIZE_BUTTON)
-        self.toolbar.append_item(None, "New Entry",
-                                 None, icon, self.addItem,    self.tree )
+        self.toolbar.append_item(None, "New Entry", None, icon, self.addItem,    self.tree )
 
         icon = gtk.image_new_from_stock(gtk.STOCK_ADD,  gtk.ICON_SIZE_BUTTON)
-        self.toolbar.append_item(None, "New Child",                                                                                            None, icon, self.addChild,   self.tree )
+        self.toolbar.append_item(None, "New Child", None, icon, self.addChild,   self.tree )
         self.toolbar.append_space()
 
         icon = gtk.image_new_from_stock(gtk.STOCK_DELETE, gtk.ICON_SIZE_BUTTON)
@@ -604,6 +624,7 @@ class OutlineEditor:
         self.toolbar.append_item(None, "Collapse",
                                  None, icon, None,None )
                                  '''
+        # search box
         icon = gtk.image_new_from_stock(gtk.STOCK_CLEAR, gtk.ICON_SIZE_BUTTON)
         self.findEntry = gtk.Entry()
         self.findEntry.connect("icon-press", lambda s, t, u : self.findEntry.set_text("") )
