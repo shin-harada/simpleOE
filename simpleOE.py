@@ -1,6 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
-Config_Font  = 'Monospace, Normal 11'
+Config_Font     = 'Monospace, Normal 11'
+Config_TreeFont = 'Monospace, Normal 11'
 Config_Width, Config_Height = (800, 800)
 
 import sys, os.path
@@ -23,8 +24,9 @@ class ExtendedTextBuffer(gtk.TextBuffer):
         self.create_tag( "comment", foreground='#008800' )
         self.create_tag( "comment2",foreground='#aaaaaa' )
         self.create_tag( "extract", foreground='#1111cc' )
+        self.create_tag( "item",    weight = pango.WEIGHT_ULTRABOLD )
         self.hilightFormats = ((r"\[[^\]]*\]","hilight"),(r"^#.*","comment"),(r"^;.*","comment2"),
-                               (r"^\>.*","extract"))
+                               (r"^\>.*","extract"),(r"^-.*","item"))
 
     # Hilight
     def hilight( self ):
@@ -208,7 +210,8 @@ class OutlineEditor:
         txt  = ""
         last = None
         for line in fp:
-            if line == "\\NewEntry\n":
+            #if line == "\NewEntry\n":
+            if re.compile(r"\NewEntry( .+)?").match(line,1):
                 last = self._setText2Buf( mode, itr, head, txt )
                 mode = True
                 txt  = ""
@@ -234,7 +237,7 @@ class OutlineEditor:
         fp = open( fname, 'r' )
         self._deSerial( fp, itr )
         fp.close()
-        self.tree.set_cursor( 0 )
+        self.treeView.set_cursor( 0 )
 
     def _serialize( self, fp, itr ):
         if None == itr:
@@ -276,26 +279,31 @@ class OutlineEditor:
         '''
 
     # ===== テキストの操作
+    def normalStatusBar(self):
+        txtBuf = self.textView.get_buffer()
+        self.sbarMessage(" c:%d  l:%d " % (txtBuf.get_char_count(), txtBuf.get_line_count()) )
+        # txtBuf.props.cursor_position
+
     def textUpdated(self, txtBuf ): # ツリータイトルのかきかえ
-        (store, itr) = self.tree.get_selection().get_selected()
+        (store, itr) = self.treeView.get_selection().get_selected()
         if txtBuf.get_line_count() > 1:
             buf = txtBuf.get_start_iter().get_text( txtBuf.get_iter_at_line(1) )[:-1] 
         else:
             buf = txtBuf.get_start_iter().get_text( txtBuf.get_end_iter() )
         self.treeStore.set_value(itr, 0, buf + " (%d)"%txtBuf.get_line_count() )
+        self.normalStatusBar()
         self.changed = True
-        self.sbarMessage(" c:%d  l:%d " % (txtBuf.get_char_count(), txtBuf.get_line_count() ) )
         txtBuf.hilight()
 
     # ===== ツリーの操作
-    def rowSelected( self, treeView, textView ): # for "cursor-changed"
+    def rowSelected( self, treeView ): # for "cursor-changed"
         # なぜか、ここに二回来る…
         (store, itr) = treeView.get_selection().get_selected()
 
         buf = store.get(itr,1)[0]
         if buf == None: return
-        textView.set_buffer( buf )
-        self.text.scroll_to_mark( buf.get_insert(), 0.3 )
+        self.textView.set_buffer( buf )
+        self.textView.scroll_to_mark( buf.get_insert(), 0.3 )
 
         # 最初だけ失敗する。謎のエラーの模様.
         # http://stackoverflow.com/questions/7032233/mysterious-gobject-warning-assertion-g-is-object-object-failed
@@ -303,8 +311,8 @@ class OutlineEditor:
     def rowMoved( self, treeModel, path, itr ):
         # ツリーが並び替えられた場合フォーカスを与える
         # 移動をするとサブツリー含めて呼ばれてしまうので、結構うざったい
-        self.tree.expand_to_path( path )
-        self.tree.set_cursor( path )
+        self.treeView.expand_to_path( path )
+        self.treeView.set_cursor( path )
 
     # ===== ツールバー
     def quitApl(self, widget, data=None):
@@ -386,25 +394,24 @@ class OutlineEditor:
         icon = self.window.render_icon(gtk.STOCK_DND, gtk.ICON_SIZE_BUTTON)
         return [txt+" (1)", buf, icon ]
 
-    def addChild( self, widget, treeView ):
-        selection = treeView.get_selection()
+    def addChild( self, widget ):
+        selection = self.treeView.get_selection()
         (store, itr) = selection.get_selected()
         store.append(itr, self._newItem() )
         self.changed = True
 
-    def addItem( self, widget, treeView ):
-        selection = treeView.get_selection()
+    def addItem( self, widget ):
+        selection = self.treeView.get_selection()
         (store, itr) = selection.get_selected()
         par = store.iter_parent(itr)
-        #store.append(par, self._newItem() )
         store.insert_after( None, itr, self._newItem() )
         self.changed = True
 
 
-    def deleteItem( self, button, treeView ):
-        selection = treeView.get_selection()
+    def deleteItem( self, button ):
+        selection = self.treeView.get_selection()
         (store, itr) = selection.get_selected()
-        cur = treeView.get_cursor()[0]
+        cur = self.treeView.get_cursor()[0]
         if cur[:-1] == ():
             c2 = (0,)
         else:
@@ -414,8 +421,8 @@ class OutlineEditor:
                 c2 = cur[:-1]+(cur[-1]-1, )
         store.remove(itr)
         if store.get_iter_root() == None:
-            self.addChild( button, treeView )
-        self.tree.set_cursor(c2)
+            self.addChild( button )
+        self.treeView.set_cursor(c2)
         self.changed = True
 
     # ----- search
@@ -429,7 +436,7 @@ class OutlineEditor:
         return self.iList
 
     def _search( self, str, dir ):
-        selection = self.tree.get_selection()
+        selection = self.treeView.get_selection()
         (store, itr) = selection.get_selected()
         buf = store.get(itr,1)[0]
 
@@ -446,10 +453,10 @@ class OutlineEditor:
                 i = buf.search( str, dir, True )
                 if i != None:
                     path = self.treeStore.get_string_from_iter( itr )
-                    self.tree.set_cursor( path )
+                    self.treeView.set_cursor( path )
                     break
         start, end = i
-        self.text.scroll_to_iter( start, 0.3 )
+        self.textView.scroll_to_iter( start, 0.3 )
         return i
 
     def search( self, widget, entry, dir ):
@@ -458,8 +465,8 @@ class OutlineEditor:
     # ----- replace
     def _replace( self, itrs, str ):
         start, end = itrs
-        self.text.get_buffer().delete( start, end )
-        self.text.get_buffer().insert( start, str )
+        self.textView.get_buffer().delete( start, end )
+        self.textView.get_buffer().insert( start, str )
         return
 
     def replace(self,wid):
@@ -467,13 +474,13 @@ class OutlineEditor:
 
     # ----- Undo
     def undo( self, wid ):
-        selection = self.tree.get_selection()
+        selection = self.treeView.get_selection()
         (store, itr) = selection.get_selected()
         buf = store.get(itr,1)[0]
         buf.undo()
 
     def redo( self, wid ):
-        selection = self.tree.get_selection()
+        selection = self.treeView.get_selection()
         (store, itr) = selection.get_selected()
         buf = store.get(itr,1)[0]
         buf.redo()
@@ -489,18 +496,18 @@ class OutlineEditor:
         self.fileName = None
         self.changed  = False
 
-        # main window
+        # ===== main window
         self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
         self.window.connect("delete_event", self.quitApl)
         #self.window.set_usize(Config_Width, Config_Height)
         self.window.set_size_request(Config_Width, Config_Height)
 
-        # vBox ( menu | tool | main | status )
+        # ===== vBox ( menu | tool | main | status )
         self.vBox = gtk.VBox(False,0)
         self.window.add(self.vBox)
         self.vBox.show()
 
-        # Menu Bar
+        # ===== Menu Bar
         mb    = gtk.MenuBar()
         self.vBox.add(mb)
         self.vBox.set_child_packing(mb, False,True,0,0)
@@ -508,13 +515,13 @@ class OutlineEditor:
         agr = gtk.AccelGroup()
         self.window.add_accel_group(agr)
 
-        menu  = gtk.Menu()
         fmi = gtk.MenuItem("_File" )
-        fmi.set_submenu(menu)
         mb.append(fmi)
+        menu  = gtk.Menu()
+        fmi.set_submenu(menu)
 
         def addImageMenuItem( menu, agr, stock, key, func ):
-            i   = gtk.ImageMenuItem( stock, agr )
+            i = gtk.ImageMenuItem( stock, agr )
             key, mod = gtk.accelerator_parse(key)
             i.add_accelerator("activate", agr, key, mod, gtk.ACCEL_VISIBLE )
             i.connect("activate", func )
@@ -526,77 +533,21 @@ class OutlineEditor:
         menu.append( gtk.SeparatorMenuItem() )
         addImageMenuItem( menu, agr, gtk.STOCK_QUIT,    "<Control>Q",        self.quitApl )
 
-        menu  = gtk.Menu()
         fmi = gtk.MenuItem("_Edit" )
-        fmi.set_submenu(menu)
         mb.append(fmi)
+        menu  = gtk.Menu()
+        fmi.set_submenu(menu)
         addImageMenuItem( menu, agr, "検索",    "<Control>R",   lambda s: self.findEntry.grab_focus() )
         addImageMenuItem( menu, agr, "置換",    "<Shift><Control>R",     self.replace )
         menu.append( gtk.SeparatorMenuItem() )
         addImageMenuItem( menu, agr, "Undo",    "<Control>Z",  self.undo )
         addImageMenuItem( menu, agr, "Redo",    "<Shift><Control>Z",   self.redo )
 
-        # tool bar
+        # ===== tool bar
         self.toolbar = gtk.Toolbar()
         self.vBox.add(self.toolbar)
         self.vBox.set_child_packing(self.toolbar, False,True,0,0)
         self.toolbar.show()
-
-        # ===== Main area ( tree | text )
-        self.hPane = gtk.HPaned()
-        self.vBox.add(self.hPane)
-        self.hPane.set_position( 200 )
-        self.hPane.show()
-
-        # text view
-        self.text = gtk.TextView( )
-        self.text.modify_font(pango.FontDescription(Config_Font))
-
-        # tree store
-        self.treeStore = gtk.TreeStore( str, ExtendedTextBuffer, gtk.gdk.Pixbuf )
-        last = self.treeStore.append(None, self._newItem() )
-
-        # tree view
-        self.tree = gtk.TreeView( self.treeStore )
-        self.tree.connect("cursor-changed", self.rowSelected, self.text )
-
-        sw = gtk.ScrolledWindow()
-        sw.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
-        sw.show()
-        sw.add(self.tree)
-        self.hPane.add(sw)
-
-        # create the TreeViewColumn to display the data
-        tvcolumn = gtk.TreeViewColumn('Entry 一覧')
-        self.tree.append_column(tvcolumn)
-
-        pix = gtk.CellRendererPixbuf()
-        tvcolumn.pack_start(pix, False)
-        tvcolumn.add_attribute(pix,'pixbuf',2)
-
-        cell = gtk.CellRendererText()
-        tvcolumn.pack_start(cell, True)
-        tvcolumn.add_attribute(cell, 'text', 0)
- 
-        self.tree.set_search_column(0)
-        self.tree.set_reorderable(True)
-        self.tree.set_cursor(0)
-        self.tree.show()
-
-        self.treeStore.connect("row-changed", self.rowMoved )
-        #self.treeStore.connect("row-inserted", self.rowMoved2 )
-        #self.tree.connect("unselect-all", self.rowMoved )
-
-        # ===== text area
-        sw = gtk.ScrolledWindow()
-        sw.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_ALWAYS)        
-        sw.show()
-        self.hPane.add(sw)
-        self.text.set_wrap_mode(gtk.WRAP_CHAR)
-        self.text.set_border_width(3)
-        self.text.show()
-        sw.add(self.text)
-
         # ----- tool bar
         icon = gtk.image_new_from_stock(gtk.STOCK_OPEN, gtk.ICON_SIZE_BUTTON)
         self.toolbar.append_item(None, "Open File", None, icon, self.openDocumentDlg )
@@ -606,15 +557,15 @@ class OutlineEditor:
         self.toolbar.append_space()
 
         icon = gtk.image_new_from_stock(gtk.STOCK_NEW,  gtk.ICON_SIZE_BUTTON)
-        self.toolbar.append_item(None, "New Entry", None, icon, self.addItem,    self.tree )
+        self.toolbar.append_item(None, "New Entry", None, icon, self.addItem )
 
         icon = gtk.image_new_from_stock(gtk.STOCK_ADD,  gtk.ICON_SIZE_BUTTON)
-        self.toolbar.append_item(None, "New Child", None, icon, self.addChild,   self.tree )
+        self.toolbar.append_item(None, "New Child", None, icon, self.addChild )
         self.toolbar.append_space()
 
         icon = gtk.image_new_from_stock(gtk.STOCK_DELETE, gtk.ICON_SIZE_BUTTON)
         self.toolbar.append_item(None, "Delete Entry",
-                                 None, icon, self.deleteItem, self.tree )
+                                 None, icon, self.deleteItem )
         self.toolbar.append_space()
 
         '''
@@ -647,6 +598,56 @@ class OutlineEditor:
         self.toolbar.append_item(None, "Replace",
                                  None, icon, self.replace, None )
 
+        # ===== Main area ( tree | text )
+        self.hPane = gtk.HPaned()
+        self.vBox.add(self.hPane)
+        self.hPane.set_position( 200 )
+        self.hPane.show()
+
+        # ===== tree store / view / column
+        self.treeStore = gtk.TreeStore( str, ExtendedTextBuffer, gtk.gdk.Pixbuf )
+        self.treeStore.append(None, self._newItem() )
+
+        self.treeView = gtk.TreeView( self.treeStore )
+        self.treeView.modify_font(pango.FontDescription(Config_TreeFont))
+        self.treeView.connect("cursor-changed", self.rowSelected )
+
+        sw = gtk.ScrolledWindow()
+        sw.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
+        sw.show()
+        sw.add(self.treeView)
+        self.hPane.add(sw)
+
+        # ----- TreeViewColumn
+        tvc = gtk.TreeViewColumn('Entry 一覧', gtk.CellRendererPixbuf(), pixbuf = 2)
+        cell = gtk.CellRendererText()
+        tvc.pack_start(cell, True)
+        tvc.add_attribute(cell, 'text', 0)
+        self.treeView.append_column(tvc)
+ 
+        self.treeView.set_search_column(0)
+        self.treeView.set_reorderable(True)
+        self.treeView.set_cursor(0)
+        self.treeView.show()
+
+        self.treeStore.connect("row-changed", self.rowMoved )
+        #self.treeStore.connect("row-inserted", self.rowMoved2 )
+        #self.tree.connect("unselect-all", self.rowMoved )
+
+        # ===== text view / area
+        self.textView = gtk.TextView( )
+        self.textView.modify_font(pango.FontDescription(Config_Font))
+        self.textView.connect("move-cursor", lambda a, b, c, d: self.normalStatusBar() )
+
+        sw = gtk.ScrolledWindow()
+        sw.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_ALWAYS)        
+        sw.show()
+        self.hPane.add(sw)
+        self.textView.set_wrap_mode(gtk.WRAP_CHAR)
+        self.textView.set_border_width(3)
+        self.textView.show()
+        sw.add(self.textView)
+
         # ===== status bar
         self.sbar = gtk.Statusbar()
         self.vBox.add(self.sbar)
@@ -664,8 +665,9 @@ class OutlineEditor:
             elif not os.path.exists( argvs[1] ):
                 self.fileName = argvs[1]
                 self.window.set_title(self.fileName + " - simpleOE")
+                self.sbarMessage("ファイル名 %s をあらたにつくります。" % argvs[1])
             else:
-                self.sbarMessage("ファイル名"+argvs[1]+"は不適切です(ディレクトリなど)")
+                self.sbarMessage("ファイル名 %s は不適切です(ディレクトリなど)" % argvs[1])
 
         # ===== window
         self.window.show_all()
