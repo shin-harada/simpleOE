@@ -187,7 +187,7 @@ class ReplaceWindow:
 
 class OutlineEditor:
     # ===== ファイルの操作
-    def _setText2Buf( self, mode, itr, head, txt ):
+    def _setText2Buf( self, mode, itr, head, txt, attr ):
         if not mode: return
 
         store = self.treeStore
@@ -200,7 +200,7 @@ class OutlineEditor:
         buf.startRec()
         icon = self.window.render_icon(gtk.STOCK_DND, gtk.ICON_SIZE_BUTTON)
         head = head + " (%d)"% buf.get_line_count()
-        last = store.append(itr, [head, buf, icon ] )
+        last = store.append(itr, [head, buf, icon, attr ] )
         return last
 
     def _deSerial( self, fp, itr):
@@ -208,27 +208,30 @@ class OutlineEditor:
         mode = False
         head = None
         txt  = ""
+        attr = None
         last = None
         for line in fp:
             #if line == "\NewEntry\n":
-            if re.compile(r"\NewEntry( .+)?").match(line,1):
-                last = self._setText2Buf( mode, itr, head, txt )
+            m = re.compile(r"\NewEntry(?: (.+))?").match(line,1)
+            if m:
+                last = self._setText2Buf( mode, itr, head, txt, attr )
                 mode = True
-                txt  = ""
                 head = None
+                txt  = ""
+                attr = m.group(1)
             elif line == "\\NewFolder\n" :
-                last = self._setText2Buf( mode, itr, head, txt )
+                last = self._setText2Buf( mode, itr, head, txt, attr )
                 mode = False
                 self._deSerial( fp, last )
             elif line == "\\EndFolder\n" :
-                last = self._setText2Buf( mode, itr, head, txt )
+                last = self._setText2Buf( mode, itr, head, txt, attr )
                 mode = False
                 return
             else:
                 txt = txt + line
                 if head == None: # 最初の行はエントリ名でもある
                     head = line[:-1]
-        self._setText2Buf( mode, itr, head, txt )
+        self._setText2Buf( mode, itr, head, txt, attr )
 
     def loadFile( self, fname ):
         store = self.treeStore
@@ -242,7 +245,11 @@ class OutlineEditor:
     def _serialize( self, fp, itr ):
         if None == itr:
             return
-        fp.write( "\\NewEntry\n" )
+        attr = self.treeStore.get(itr,3)[0]
+        if attr:
+            fp.write( "\\NewEntry %s\n"%attr )
+        else :
+            fp.write( "\\NewEntry\n" )
         buf = self.treeStore.get(itr,1)[0]
         fp.write( buf.get_start_iter().get_text(buf.get_end_iter() ) )
         fp.write( "\n" )
@@ -392,7 +399,7 @@ class OutlineEditor:
         buf.connect("changed", self.textUpdated )
         buf.hilight()
         icon = self.window.render_icon(gtk.STOCK_DND, gtk.ICON_SIZE_BUTTON)
-        return [txt+" (1)", buf, icon ]
+        return [txt+" (1)", buf, icon, None ]
 
     def addChild( self, widget ):
         selection = self.treeView.get_selection()
@@ -406,7 +413,6 @@ class OutlineEditor:
         par = store.iter_parent(itr)
         store.insert_after( None, itr, self._newItem() )
         self.changed = True
-
 
     def deleteItem( self, button ):
         selection = self.treeView.get_selection()
@@ -424,6 +430,33 @@ class OutlineEditor:
             self.addChild( button )
         self.treeView.set_cursor(c2)
         self.changed = True
+
+    # --- tree context menu
+    def addAttribute2Tree( self, menuItem, pos, atr ):
+        itr = self.treeStore.get_iter(pos[0])
+        self.treeStore.set_value( itr, 3, atr )
+        self.changed = True
+        
+    def treeContextMenu( self, treeView, event ):
+        if event.button == 3:
+            pos = self.treeView.get_path_at_pos( int(event.x), int(event.y) )
+            if pos == None: return
+            menu = gtk.Menu()
+            item = gtk.MenuItem("Blue" )
+            item.connect('activate', self.addAttribute2Tree, pos, '1' )
+            menu.append(item)
+            item = gtk.MenuItem("Green" )
+            item.connect('activate', self.addAttribute2Tree, pos, '2' )
+            menu.append(item)
+            item = gtk.MenuItem("Red" )
+            item.connect('activate', self.addAttribute2Tree, pos, '3' )
+            menu.append(item)
+            item = gtk.MenuItem("Normal" )
+            item.connect('activate', self.addAttribute2Tree, pos, '0' )
+            menu.append(item)
+
+            menu.show_all()
+            menu.popup(None,None,None,event.button,event.time)
 
     # ----- search
     def _getTreeIters( self, store, itr, dir ):
@@ -605,12 +638,13 @@ class OutlineEditor:
         self.hPane.show()
 
         # ===== tree store / view / column
-        self.treeStore = gtk.TreeStore( str, ExtendedTextBuffer, gtk.gdk.Pixbuf )
+        self.treeStore = gtk.TreeStore( str, ExtendedTextBuffer, gtk.gdk.Pixbuf, str )
         self.treeStore.append(None, self._newItem() )
 
         self.treeView = gtk.TreeView( self.treeStore )
         self.treeView.modify_font(pango.FontDescription(Config_TreeFont))
         self.treeView.connect("cursor-changed", self.rowSelected )
+        self.treeView.connect("button_press_event", self.treeContextMenu )
 
         sw = gtk.ScrolledWindow()
         sw.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
@@ -619,10 +653,22 @@ class OutlineEditor:
         self.hPane.add(sw)
 
         # ----- TreeViewColumn
-        tvc = gtk.TreeViewColumn('Entry 一覧', gtk.CellRendererPixbuf(), pixbuf = 2)
+        tvc  = gtk.TreeViewColumn('Entry 一覧')
+        cell = gtk.CellRendererPixbuf()
+        tvc.pack_start(cell, False )
+        tvc.add_attribute( cell, 'pixbuf', 2 )
         cell = gtk.CellRendererText()
-        tvc.pack_start(cell, True)
-        tvc.add_attribute(cell, 'text', 0)
+        tvc.pack_start(cell, False )
+        #tvc.add_attribute(cell, 'text', 0)
+        def _setTVAttr( col, cell, model, itr ):
+            colmap={ '0':'#000000', '1':'#0000ff', '2':'#008800', '3':'#ff0000' }
+            cell.props.text = model.get(itr,0)[0]
+            attr = model.get(itr,3 )[0]
+            if attr == None:
+                cell.props.foreground = 'black'
+            else:
+                cell.props.foreground = colmap[attr]
+        tvc.set_cell_data_func( cell, _setTVAttr )
         self.treeView.append_column(tvc)
  
         self.treeView.set_search_column(0)
