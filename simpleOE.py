@@ -198,9 +198,8 @@ class OutlineEditor:
         buf.connect("changed", self.textUpdated )
         buf.place_cursor(buf.get_start_iter())
         buf.startRec()
-        icon = self.window.render_icon(gtk.STOCK_DND, gtk.ICON_SIZE_BUTTON)
         head = head + " (%d)"% buf.get_line_count()
-        last = store.append(itr, [head, buf, icon, attr ] )
+        last = store.append(itr, [head, buf, attr ] )
         return last
 
     def _deSerial( self, fp, itr):
@@ -398,8 +397,7 @@ class OutlineEditor:
         buf.set_text(txt)
         buf.connect("changed", self.textUpdated )
         buf.hilight()
-        icon = self.window.render_icon(gtk.STOCK_DND, gtk.ICON_SIZE_BUTTON)
-        return [txt+" (1)", buf, icon, None ]
+        return [txt+" (1)", buf, None ]
 
     def addChild( self, widget ):
         selection = self.treeView.get_selection()
@@ -638,7 +636,7 @@ class OutlineEditor:
         self.hPane.show()
 
         # ===== tree store / view / column
-        self.treeStore = gtk.TreeStore( str, ExtendedTextBuffer, gtk.gdk.Pixbuf, str )
+        self.treeStore = gtk.TreeStore( str, ExtendedTextBuffer, str )
         self.treeStore.append(None, self._newItem() )
 
         self.treeView = gtk.TreeView( self.treeStore )
@@ -654,14 +652,18 @@ class OutlineEditor:
 
         # ----- TreeViewColumn
         tvc  = gtk.TreeViewColumn('Entry 一覧')
+
         cell = gtk.CellRendererPixbuf()
         tvc.pack_start(cell, False )
-        tvc.add_attribute( cell, 'pixbuf', 2 )
+        icon = self.window.render_icon(gtk.STOCK_DND, gtk.ICON_SIZE_BUTTON)
+        def _setTVPix( col, cell, model, itr ):
+            cell.props.pixbuf = icon
+        tvc.set_cell_data_func( cell, _setTVPix )
+
         cell = gtk.CellRendererText()
         tvc.pack_start(cell, False )
-        #tvc.add_attribute(cell, 'text', 0)
         def _setTVAttr( col, cell, model, itr ):
-            colmap={ '0':'#000000', '1':'#0000ff', '2':'#008800', '3':'#ff0000' }
+            colmap={ '0':'#000000', '1':'#0000ff', '2':'#006600', '3':'#ff0000' }
             cell.props.text = model.get(itr,0)[0]
             attr = model.get(itr,3 )[0]
             if attr == None:
