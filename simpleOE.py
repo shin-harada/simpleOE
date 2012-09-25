@@ -244,7 +244,7 @@ class OutlineEditor:
     def _serialize( self, fp, itr ):
         if None == itr:
             return
-        attr = self.treeStore.get(itr,3)[0]
+        attr = self.treeStore.get(itr,2)[0]
         if attr:
             fp.write( "\\NewEntry %s\n"%attr )
         else :
@@ -665,7 +665,7 @@ class OutlineEditor:
         def _setTVAttr( col, cell, model, itr ):
             colmap={ '0':'#000000', '1':'#0000ff', '2':'#006600', '3':'#ff0000' }
             cell.props.text = model.get(itr,0)[0]
-            attr = model.get(itr,3 )[0]
+            attr = model.get(itr,2 )[0]
             if attr == None:
                 cell.props.foreground = 'black'
             else:
