@@ -325,6 +325,7 @@ class OutlineEditor:
     def sideScroll( self, treeView, event ):
         selection = treeView.get_selection()
         (store, itr) = selection.get_selected()
+        if itr == None: return
         buf = store.get(itr,1)[0]
         if buf == None: return
         list = self._getTreeIters( store, itr, dir )
@@ -333,11 +334,21 @@ class OutlineEditor:
         if event.direction == gtk.gdk.SCROLL_UP:
             itr = list.pop(-1)
             if itr != None:
-                treeView.set_cursor( store.get_string_from_iter( itr ) )                
+                path = store.get_string_from_iter( itr )
+                treeView.expand_to_path( path )
+                treeView.set_cursor( path )
+                '''
+                ev = gtk.gdk.Event(gtk.gdk.KEY_PRESS)
+                ev.keyval = gtk.keysyms.Up
+                treeView.emit('key-press-event', ev )
+                treeView.emit('key_press_event', ev )
+                '''
         else:
             itr = list.pop(0)
             if itr != None:
-                treeView.set_cursor( store.get_string_from_iter( itr ) )
+                path = store.get_string_from_iter( itr )
+                treeView.expand_to_path( path )
+                treeView.set_cursor( path )
 
     # ===== ツールバー
     def quitApl(self, widget, data=None):
