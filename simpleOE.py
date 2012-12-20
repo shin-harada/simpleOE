@@ -328,27 +328,31 @@ class OutlineEditor:
         if itr == None: return
         buf = store.get(itr,1)[0]
         if buf == None: return
-        list = self._getTreeIters( store, itr, dir )
-        list.pop(0)
-        if len(list) == 0: return
+        '''
         if event.direction == gtk.gdk.SCROLL_UP:
             itr = list.pop(-1)
             if itr != None:
                 path = store.get_string_from_iter( itr )
                 treeView.expand_to_path( path )
                 treeView.set_cursor( path )
-                '''
                 ev = gtk.gdk.Event(gtk.gdk.KEY_PRESS)
                 ev.keyval = gtk.keysyms.Up
                 treeView.emit('key-press-event', ev )
                 treeView.emit('key_press_event', ev )
-                '''
         else:
             itr = list.pop(0)
             if itr != None:
                 path = store.get_string_from_iter( itr )
                 treeView.expand_to_path( path )
                 treeView.set_cursor( path )
+        '''
+        list = self._getTreeIters( store, itr, -1 if event.direction == gtk.gdk.SCROLL_UP else 1 , False )
+        list.pop(0)
+        if len(list)>0:
+            itr = list.pop(0)
+            path = store.get_string_from_iter( itr )
+            treeView.expand_to_path( path )
+            treeView.set_cursor( path )
 
     # ===== ツールバー
     def quitApl(self, widget, data=None):
@@ -484,13 +488,14 @@ class OutlineEditor:
 
     # ----- search
     # リストにある要素の一覧を返す
-    def _getTreeIters( self, store, itr, dir ):
+    def _getTreeIters( self, store, itr, dir, loop=True ):
         self.iList = []
         store.foreach( lambda m,p,i: self.iList.append(i) )
         if dir == -1: self.iList.reverse()
         while store.get_string_from_iter(itr) != store.get_string_from_iter(self.iList[0]): 
             i = self.iList.pop(0)
-            self.iList.append(i)
+            if loop:
+                self.iList.append(i)
         return self.iList
 
     def _search( self, str, dir ):
