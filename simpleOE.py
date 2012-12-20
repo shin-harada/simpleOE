@@ -322,6 +322,23 @@ class OutlineEditor:
         self.TreeView.expand_to_path( path )
         self.TreeView.set_cursor( path )
 
+    def sideScroll( self, treeView, event ):
+        selection = treeView.get_selection()
+        (store, itr) = selection.get_selected()
+        buf = store.get(itr,1)[0]
+        if buf == None: return
+        list = self._getTreeIters( store, itr, dir )
+        list.pop(0)
+        if len(list) == 0: return
+        if event.direction == gtk.gdk.SCROLL_UP:
+            itr = list.pop(-1)
+            if itr != None:
+                treeView.set_cursor( store.get_string_from_iter( itr ) )                
+        else:
+            itr = list.pop(0)
+            if itr != None:
+                treeView.set_cursor( store.get_string_from_iter( itr ) )
+
     # ===== ツールバー
     def quitApl(self, widget, data=None):
         if self.changed :
@@ -401,20 +418,17 @@ class OutlineEditor:
         return [txt+" (1)", buf, None ]
 
     def addChild( self, widget ):
-        selection = self.TreeView.get_selection()
-        (store, itr) = selection.get_selected()
+        (store, itr) = self.TreeView.get_selection().get_selected()
         store.append(itr, self._newItem() )
         self.changed = True
 
     def addItem( self, widget ):
-        selection = self.TreeView.get_selection()
-        (store, itr) = selection.get_selected()
+        (store, itr) = self.TreeView.get_selection().get_selected()
         store.insert_after( None, itr, self._newItem() )
         self.changed = True
 
     def deleteItem( self, button ):
-        selection = self.TreeView.get_selection()
-        (store, itr) = selection.get_selected()
+        (store, itr) = self.TreeView.get_selection().get_selected()
         cur = self.TreeView.get_cursor()[0]
         if cur[:-1] == ():
             c2 = (0,)
@@ -458,6 +472,7 @@ class OutlineEditor:
             menu.popup(None,None,None,event.button,event.time)
 
     # ----- search
+    # リストにある要素の一覧を返す
     def _getTreeIters( self, store, itr, dir ):
         self.iList = []
         store.foreach( lambda m,p,i: self.iList.append(i) )
@@ -506,14 +521,12 @@ class OutlineEditor:
 
     # ----- Undo
     def undo( self, wid ):
-        selection = self.TreeView.get_selection()
-        (store, itr) = selection.get_selected()
+        (store, itr) = self.TreeView.get_selection().get_selected()
         buf = store.get(itr,1)[0]
         buf.undo()
 
     def redo( self, wid ):
-        selection = self.TreeView.get_selection()
-        (store, itr) = selection.get_selected()
+        (store, itr) = self.TreeView.get_selection().get_selected()
         buf = store.get(itr,1)[0]
         buf.redo()
 
@@ -647,11 +660,13 @@ class OutlineEditor:
         self.TreeView.set_reorderable(True)
         self.TreeView.connect("cursor-changed", self.rowSelected )
         self.TreeView.connect("button_press_event", self.treeContextMenu )
+        self.TreeView.connect("scroll_event", self.sideScroll )
         self.TreeView.show()
         self.TreeView.set_cursor(0)
 
         sw = gtk.ScrolledWindow()
         sw.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
+        sw.connect( "scroll_event", lambda a,b: True ) # ホイールスクロールを無効化
         sw.show()
         sw.add(self.TreeView)
         self.hPane.add(sw)
